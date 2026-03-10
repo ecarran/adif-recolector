@@ -100,7 +100,6 @@ def ejecutar_extraccion():
         # 3. PROCESAMIENTO
         ahora = datetime.now(ZONA_HORARIA)
         timestamp_captura = ahora.strftime("%Y-%m-%d %H:%M:%S")
-        fecha_hoy = ahora.strftime("%Y-%m-%d") # Extraemos la fecha para la firma
         
         nuevos_registros = []
 
@@ -115,13 +114,15 @@ def ejecutar_extraccion():
                 ant = resolver_estacion(t.get('codEstAnt'), dicc_est)
                 sig = resolver_estacion(t.get('codEstSig'), dicc_est)
                 
-                # --- AQUÍ ESTÁ EL CAMBIO: Firma sintética ---
+                # --- AQUÍ ESTÁ LA CORRECCIÓN: Firma sintética anclada ---
                 cod_comercial = t.get('codComercial', 'N/D')
-                firma_unica = f"{cod_comercial}_{fecha_hoy}"
+                fecha_servicio = t.get('fecSalida', ahora.strftime("%Y-%m-%d"))
+                firma_unica = f"{cod_comercial}_{fecha_servicio}"
+                # ---------------------------------------------------------
                 
                 fila_dict = {
                     'timestamp': timestamp_captura,
-                    'cod_tren_unico': firma_unica,                # ¡Columna B solucionada!
+                    'cod_tren_unico': firma_unica,
                     'producto': prod,
                     'id_tren': cod_comercial,
                     'matricula': t.get('mat', 'N/D'),
