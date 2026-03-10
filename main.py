@@ -18,6 +18,19 @@ HEADERS = {'Referer': BASE_URL + '/', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.
 
 app = FastAPI()
 
+# --- NUEVA CONEXIÓN GLOBAL PERSISTENTE ---
+print("🔐 Inicializando conexión persistente con Google Sheets...")
+try:
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_global = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_JSON, scope)
+    client_global = gspread.authorize(creds_global)
+    SHEET_GLOBAL = client_global.open(SPREADSHEET_NAME).get_worksheet(0)
+    print("✅ Conexión con Google Sheets establecida y lista.")
+except Exception as e:
+    print(f"❌ Error al conectar con Sheets al inicio: {e}")
+    client_global = None
+    SHEET_GLOBAL = None
+
 # TABLA XREF (Cross-Reference): Mapeo de Nodos Comerciales Renfe -> Adif
 XREF_COMERCIAL = {
     '03216': 'Madrid-Chamartín',
@@ -64,22 +77,22 @@ def resolver_estacion(cod_original, dicc_adif):
     if cod_str.lstrip('0') in dicc_adif: return dicc_adif[cod_str.lstrip('0')]
     return f"N/D ({cod_str})"
 
-def conectar_y_preparar_hoja():
-    try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_JSON, scope)
-        client = gspread.authorize(creds)
-        sheet = client.open(SPREADSHEET_NAME).get_worksheet(0)
-        return sheet
-    except Exception as e:
-        print(f"⛔ Error en Sheets: {e}")
-        return None
-
 # --- LÓGICA DE EXTRACCIÓN Y ESCRITURA ---
 
 def ejecutar_extraccion():
-    sheet = conectar_y_preparar_hoja()
-    if not sheet: return
+    global SHEET_GLOBAL, client_global
+    
+    # Si la conexión falló al arrancar, la reintentamos aquí
+    if SHEET_GLOBAL is None:
+        print("⚠️ Hoja no conectada. Reintentando conexión inicial...")
+        try:
+            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+            creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_JSON, scope)
+            client_global = gspread.authorize(creds)
+            SHEET_GLOBAL = client_global.open(SPREADSHEET_NAME).get_worksheet(0)
+        except Exception as e:
+            print(f"⛔ Error en Sheets al reconectar: {e}")
+            return
 
     try:
         # 1. CARGA DE ESTACIONES
@@ -114,11 +127,10 @@ def ejecutar_extraccion():
                 ant = resolver_estacion(t.get('codEstAnt'), dicc_est)
                 sig = resolver_estacion(t.get('codEstSig'), dicc_est)
                 
-                # --- AQUÍ ESTÁ LA CORRECCIÓN: Firma sintética anclada ---
+                # --- Firma sintética anclada ---
                 cod_comercial = t.get('codComercial', 'N/D')
                 fecha_servicio = t.get('fecSalida', ahora.strftime("%Y-%m-%d"))
                 firma_unica = f"{cod_comercial}_{fecha_servicio}"
-                # ---------------------------------------------------------
                 
                 fila_dict = {
                     'timestamp': timestamp_captura,
@@ -141,11 +153,19 @@ def ejecutar_extraccion():
                 
                 nuevos_registros.append(list(fila_dict.values()))
 
-        # 4. GUARDADO EN GOOGLE SHEETS
+        # 4. GUARDADO EN GOOGLE SHEETS (Conexión persistente)
         if nuevos_registros:
-            sheet.append_rows(nuevos_registros)
-            print(f"✅ DATASET ACTUALIZADO: {len(nuevos_registros)} registros inyectados en {SPREADSHEET_NAME}")
-            
+            try:
+                SHEET_GLOBAL.append_rows(nuevos_registros)
+                print(f"✅ DATASET ACTUALIZADO: {len(nuevos_registros)} registros inyectados en {SPREADSHEET_NAME}")
+            except Exception as e_sheet:
+                # Si la sesión caducó, gspread intentará loguearse de nuevo
+                print(f"🔄 Posible sesión caducada, reconectando... ({e_sheet})")
+                client_global.login() 
+                SHEET_GLOBAL = client_global.open(SPREADSHEET_NAME).get_worksheet(0)
+                SHEET_GLOBAL.append_rows(nuevos_registros)
+                print(f"✅ DATASET ACTUALIZADO (tras reconexión automática)")
+                
     except Exception as e:
         print(f"❌ Error en la extracción: {e}")
 
@@ -167,3 +187,4 @@ def recolectar():
 # Permitir testeo local / en Colab
 if __name__ == '__main__':
     ejecutar_extraccion()
+
