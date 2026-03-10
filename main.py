@@ -50,14 +50,20 @@ def obtener_nombre_producto(cod):
 def procesar_fecha_hora_completa(valor, retraso_min=0):
     if not valor or str(valor) in ['0', 'N/D']: return "N/D", "N/D"
     try:
+        # 1. El valor de la API es la llegada ESTIMADA
         if 'T' in str(valor):
-            dt_plan = datetime.fromisoformat(str(valor).replace('Z', ''))
+            dt_prev = datetime.fromisoformat(str(valor).replace('Z', ''))
         else:
             v = str(valor).zfill(4)
-            dt_plan = datetime.now(ZONA_HORARIA).replace(hour=int(v[:2]), minute=int(v[2:4]), second=0, microsecond=0)
-        dt_prev = dt_plan + timedelta(minutes=int(retraso_min))
+            dt_prev = datetime.now(ZONA_HORARIA).replace(hour=int(v[:2]), minute=int(v[2:4]), second=0, microsecond=0)
+        
+        # 2. La PLANIFICADA original se calcula RESTANDO el retraso
+        dt_plan = dt_prev - timedelta(minutes=int(retraso_min))
+        
+        # Devolvemos (h_plan, h_prev)
         return dt_plan.strftime("%Y-%m-%d %H:%M"), dt_prev.strftime("%Y-%m-%d %H:%M")
-    except: return "N/D", "N/D"
+    except: 
+        return "N/D", "N/D"
 
 def mapear_serie(mat):
     m = str(mat)
@@ -187,4 +193,5 @@ def recolectar():
 # Permitir testeo local / en Colab
 if __name__ == '__main__':
     ejecutar_extraccion()
+
 
