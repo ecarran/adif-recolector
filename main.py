@@ -159,18 +159,36 @@ def ejecutar_extraccion():
                 
                 nuevos_registros.append(list(fila_dict.values()))
 
-        # 4. GUARDADO EN GOOGLE SHEETS (Conexión persistente)
+        # 4. GUARDADO EN GOOGLE SHEETS (Conexión persistente y robusta)
         if nuevos_registros:
-            try:
-                SHEET_GLOBAL.append_rows(nuevos_registros)
-                print(f"✅ DATASET ACTUALIZADO: {len(nuevos_registros)} registros inyectados en {SPREADSHEET_NAME}")
-            except Exception as e_sheet:
-                # Si la sesión caducó, gspread intentará loguearse de nuevo
-                print(f"🔄 Posible sesión caducada, reconectando... ({e_sheet})")
-                client_global.login() 
-                SHEET_GLOBAL = client_global.open(SPREADSHEET_NAME).get_worksheet(0)
-                SHEET_GLOBAL.append_rows(nuevos_registros)
-                print(f"✅ DATASET ACTUALIZADO (tras reconexión automática)")
+            intentos = 0
+            max_intentos = 3
+            
+            while intentos < max_intentos:
+                try:
+                    SHEET_GLOBAL.append_rows(nuevos_registros)
+                    print(f"✅ DATASET ACTUALIZADO: {len(nuevos_registros)} registros inyectados en {SPREADSHEET_NAME}")
+                    break # Éxito: salimos del bucle while
+                    
+                except Exception as e_sheet:
+                    intentos += 1
+                    print(f"🔄 Error de API de Google (Intento {intentos}/{max_intentos}). Detalle: {e_sheet}")
+                    
+                    if intentos < max_intentos:
+                        print("⏳ Esperando 10 segundos antes de reintentar...")
+                        time.sleep(10)
+                        
+                        # Recreamos el cliente DESDE CERO por si la sesión murió
+                        try:
+                            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+                            creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_JSON, scope)
+                            client_global = gspread.authorize(creds)
+                            SHEET_GLOBAL = client_global.open(SPREADSHEET_NAME).get_worksheet(0)
+                            print("🔌 Cliente de Sheets reconstruido con éxito.")
+                        except Exception as e_reconnect:
+                            print(f"⚠️ Error al intentar reconstruir el cliente: {e_reconnect}")
+                    else:
+                        print(f"❌ Extracción abortada. Se superaron los {max_intentos} intentos para escribir en Sheets.")
                 
     except Exception as e:
         print(f"❌ Error en la extracción: {e}")
