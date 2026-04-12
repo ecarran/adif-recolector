@@ -112,9 +112,23 @@ def ejecutar_extraccion():
             c_nom = next((k for k in props if 'NOM' in k.upper()), 'nombre')
             dicc_est = {str(f['properties'][c_id]): f['properties'][c_nom] for f in features}
 
-        # 2. OBTENCIÓN DE TRÁFICO
-        res_flota = requests.get(f"{BASE_URL}/renfe-visor/flotaLD.json?v={int(time.time())}", headers=HEADERS).json()
-        trenes = res_flota.get('trenes', [])
+        # 2. OBTENCIÓN DE TRÁFICO CON REINTENTOS
+        trenes = []
+        intentos_api = 0
+        while intentos_api < 3:
+            try:
+                res_flota = requests.get(f"{BASE_URL}/renfe-visor/flotaLD.json?v={int(time.time())}", headers=HEADERS, timeout=15)
+                res_flota.raise_for_status() # Lanza error interno si Renfe devuelve 500 o 503
+                trenes = res_flota.json().get('trenes', [])
+                break # Si todo va bien, rompe el bucle de reintentos y sigue adelante
+            except Exception as e_api:
+                intentos_api += 1
+                print(f"⚠️ Renfe rechazó la conexión (Intento {intentos_api}/3). Detalle: {e_api}")
+                time.sleep(5) # Pausa de 5 segundos antes del siguiente intento
+                
+        if not trenes:
+            print("❌ Imposible obtener datos de Renfe tras 3 intentos. Abortando ciclo para evitar huecos.")
+            return
 
         # 3. PROCESAMIENTO
         ahora = datetime.now(ZONA_HORARIA)
@@ -211,5 +225,3 @@ def recolectar():
 # Permitir testeo local / en Colab
 if __name__ == '__main__':
     ejecutar_extraccion()
-
-
