@@ -101,16 +101,24 @@ def ejecutar_extraccion():
             return
 
     try:
-        # 1. CARGA DE ESTACIONES
-        res_est = requests.get(f"{BASE_URL}/data/estaciones.geojson?v=1", headers=HEADERS).json()
-        features = res_est.get('features', [])
-        
+        # 1. CARGA DE ESTACIONES CON REINTENTOS
         dicc_est = {}
-        if features:
-            props = features[0]['properties']
-            c_id = next((k for k in props if 'COD' in k.upper() or 'ID' in k.upper()), 'codigo')
-            c_nom = next((k for k in props if 'NOM' in k.upper()), 'nombre')
-            dicc_est = {str(f['properties'][c_id]): f['properties'][c_nom] for f in features}
+        intentos_est = 0
+        while intentos_est < 3:
+            try:
+                res_est = requests.get(f"{BASE_URL}/data/estaciones.geojson?v=1", headers=HEADERS, timeout=15)
+                res_est.raise_for_status()
+                features = res_est.json().get('features', [])
+                if features:
+                    props = features[0]['properties']
+                    c_id = next((k for k in props if 'COD' in k.upper() or 'ID' in k.upper()), 'codigo')
+                    c_nom = next((k for k in props if 'NOM' in k.upper()), 'nombre')
+                    dicc_est = {str(f['properties'][c_id]): f['properties'][c_nom] for f in features}
+                break # Éxito, salimos del bucle
+            except Exception as e_est:
+                intentos_est += 1
+                print(f"⚠️ Error al cargar estaciones (Intento {intentos_est}/3): {e_est}")
+                time.sleep(3) # Pausa corta antes de reintentar
 
         # 2. OBTENCIÓN DE TRÁFICO CON REINTENTOS
         trenes = []
